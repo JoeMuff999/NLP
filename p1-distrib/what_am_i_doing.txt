@@ -1,0 +1,26 @@
+
+Feature Extraction:
+
+create a bag-of-words
+
+e.g., bow = {good, movie, not, a, did, like}. our indexer is our vocab. we use the indexer to index into our weight vector. 
+
+for each sentence, we add these to the indexer
+
+extract features means to convert to counts. 
+
+so say we have the sentence "good movie".
+
+then we would have feature = [1,1,0,0,0,0]. this is of course if we do 0/1 features
+
+so our weight vector will be the size of our vocabulary. 
+
+Training:
+
+in logistic regression, log-likelihood is the chance that a classification is true given the features. It is a measure of how well our logistic function fits the data. It is equivalent to Residual sum of squares in linear regression (data point distance squared from fitting-line). 
+Minimizing negative log-likelihood (our loss function) will thereby maximize likelihood 
+
+
+Pre-Processing: look into nltk for "tokenization"
+https://www.digitalocean.com/community/tutorials/how-to-work-with-language-data-in-python-3-using-the-natural-language-toolkit-nltk
+https://www.geeksforgeeks.org/feature-extraction-techniques-nlp/ 
