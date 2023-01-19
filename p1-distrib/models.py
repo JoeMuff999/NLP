@@ -11,6 +11,7 @@ from utils import *
 from collections import Counter
 import nltk
 import string
+import matplotlib
 
 
 class SentimentClassifier(object):
@@ -144,6 +145,14 @@ class LogisticRegressionClassifier(SentimentClassifier):
             return 1
         return 0
 
+# training_schedule = {"name" : "constant_0-01", "learning_rate" : .01}
+# training_schedule = {"name" : "constant_0-1", "learning_rate" : .1}
+# training_schedule = {"name" : "constant_1", "learning_rate" : 1}
+# training_schedule = {"name" : "per_step", "learning_rate" : 1}
+training_schedule = {"name" : "per_epoch", "learning_rate" : 1}
+EPOCHS = 15
+
+#average log-likelihoods per epoch
 
 def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor: FeatureExtractor) -> LogisticRegressionClassifier:
     """
@@ -152,12 +161,18 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
     :param feat_extractor: feature extractor to use
     :return: trained LogisticRegressionClassifier model
     """
+    log_likelihoods = np.zeros(EPOCHS*len(train_exs))
+    ll_per_epoch = np.zeros(EPOCHS)
+    dev_accuracy_per_epoch = np.zeros(EPOCHS)
     #fixed size numpy.ndarray for weights? for now, we will dynamically increase size
     weights = np.zeros(len(feat_extractor.get_indexer()))
     # train the model bro...
+    dev_exs = read_sentiment_examples('data/dev.txt')
+
     random.seed(1)
-    learning_rate = 0.1
-    for _ in range(10):
+    learning_rate = training_schedule["learning_rate"]
+    step_count = 0
+    for epoch in range(EPOCHS):
         random.shuffle(train_exs)
         for example in train_exs:
             x = example.words
@@ -175,9 +190,26 @@ def train_logistic_regression(train_exs: List[SentimentExample], feat_extractor:
 
             for word in features.keys():
                 weights[feat_extractor.get_indexer().index_of(word)] += learning_rate * update_val
+            
+            log_likelihood = np.log(probability) * example.label + np.log(1 - probability)*(1-example.label)
+            log_likelihoods[step_count] = log_likelihood
+            step_count += 1
+            if training_schedule["name"] == "per_step":
+                learning_rate = 1.0/step_count
+        if training_schedule["name"] == "per_epoch":
+            learning_rate = 1.0/(epoch+1)
+        ll_per_epoch[epoch] = sum(log_likelihoods[epoch*len(train_exs):(epoch+1)*len(train_exs)])/len(train_exs)       
 
-    # print(weights)
-    # print(feat_extractor.get_indexer().get_object(1))
+        # get dev accuracy
+        temp_classifier = LogisticRegressionClassifier(weights, feat_extractor)
+        for example in dev_exs:
+            if temp_classifier.predict(example.words) == example.label:
+                dev_accuracy_per_epoch[epoch] += 1/len(dev_exs)
+
+    np.savetxt('mydata/training/' + str(training_schedule['name']) + '.csv', log_likelihoods)
+    np.savetxt('mydata/training/' + str(training_schedule['name']) + '-epoch.csv', ll_per_epoch)
+    np.savetxt('mydata/training/' + str(training_schedule['name']) + '-dev.csv', dev_accuracy_per_epoch)
+
 
     return LogisticRegressionClassifier(weights, feat_extractor)
 
