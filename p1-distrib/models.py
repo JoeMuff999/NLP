@@ -234,7 +234,7 @@ class FFNN(nn.Module):
         super(FFNN, self).__init__()
         self.V = nn.Linear(inp, hid)
         # self.g = nn.Tanh()
-        self.g = nn.ReLU6()
+        self.g = nn.ReLU()
         self.W = nn.Linear(hid, out)
         self.log_softmax = nn.LogSoftmax(dim=0)
         # Initialize weights according to a formula due to Xavier Glorot.
@@ -291,7 +291,7 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
     num_epochs = 15
     ffnn = FFNN(word_embeddings.get_embedding_length(), 10, num_output_classes, word_embeddings)
     ffnn.train()
-    initial_learning_rate = 0.001
+    initial_learning_rate = 0.0015
     optimizer = optim.Adam(ffnn.parameters(), lr=initial_learning_rate)
     for epoch in range(0, num_epochs):
         ex_indices = [i for i in range(0, len(train_exs))]
