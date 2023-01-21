@@ -289,7 +289,7 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
     # RUN TRAINING AND TEST
     num_output_classes = 2
     num_epochs = 10
-    BATCH_SIZE = 5
+    BATCH_SIZE = 2
     ffnn = FFNN(word_embeddings.get_embedding_length(), 10, num_output_classes, word_embeddings)
     ffnn.train()
     initial_learning_rate = 0.001
@@ -307,9 +307,9 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
                 shuffled_idx = ex_indices[idx + batch_idx]
                 batched_inputs.append(train_exs[shuffled_idx].words)
                 batched_labels.append(train_exs[shuffled_idx].label)
-                idx += 1
                 batch_idx += 1
-        
+
+            idx += batch_idx
             batched_labels = torch.tensor(batched_labels)
 
             # scatter will write the value of 1 into the position of y_onehot given by y
@@ -318,9 +318,7 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
             y_onehot = [i.scatter(0, torch.from_numpy(np.asarray(y,dtype=np.int64)), 1).tolist() for i,y in zip(y_onehot, batched_labels)]
             # Zero out the gradients from the FFNN object. *THIS IS VERY IMPORTANT TO DO BEFORE CALLING BACKWARD()*
             ffnn.zero_grad()
-            
             log_probs = ffnn.forward(batched_inputs)
-            # print(log_probs)
             # Can also use built-in NLLLoss as a shortcut here but we're being explicit here
             
             loss = torch.neg(log_probs).mul(torch.tensor(y_onehot))
