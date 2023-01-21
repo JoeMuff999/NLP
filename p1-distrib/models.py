@@ -243,7 +243,7 @@ class FFNN(nn.Module):
         # self.dropout = nn.Dropout()
         self.word_embeddings = word_embeddings
 
-    def forward(self, _input : List[str]):
+    def forward(self, batched_input : List[List[str]]):
         """
 
         Runs the neural network on the given data and returns log probabilities of the various classes.
@@ -252,14 +252,14 @@ class FFNN(nn.Module):
         :return: an [out]-sized tensor of log probabilities. (In general your network can be set up to return either log
         probabilities or a tuple of (loss, log probability) if you want to pass in y to this function as well
         """
-
-        encoded_input = np.zeros(self.word_embeddings.get_embedding_length())
-        for word in _input:
-            encoded_input = np.add(encoded_input, self.word_embeddings.get_embedding(word))
+        # max_size = max([len(ls) for ls in batched_input])
+        batched_encoded_input = torch.zeros((len(batched_input), self.word_embeddings.get_embedding_length()))
+        for idx, _input in enumerate(batched_input):
+            for word in _input:
+                batched_encoded_input[idx] = np.add(batched_encoded_input[idx], self.word_embeddings.get_embedding(word))
             
-        encoded_input = encoded_input / len(_input)
-        encoded_input = torch.tensor(encoded_input).float()
-        return self.log_softmax(self.W(self.g(self.V(encoded_input))))
+            batched_encoded_input[idx] = batched_encoded_input[idx] / len(_input)
+        return self.log_softmax(self.W(self.g(self.V(batched_encoded_input))))
 
 class NeuralSentimentClassifier(SentimentClassifier):
     """
@@ -288,11 +288,11 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
 
     # RUN TRAINING AND TEST
     num_output_classes = 2
-    num_epochs = 1000
-    BATCH_SIZE = 20
+    num_epochs = 10
+    BATCH_SIZE = 5
     ffnn = FFNN(word_embeddings.get_embedding_length(), 10, num_output_classes, word_embeddings)
     ffnn.train()
-    initial_learning_rate = 0.0001
+    initial_learning_rate = 0.001
     optimizer = optim.Adam(ffnn.parameters(), lr=initial_learning_rate)
     for epoch in range(0, num_epochs):
         ex_indices = [i for i in range(0, len(train_exs))]
@@ -303,11 +303,12 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
             batched_inputs = []
             batched_labels = []
             batch_idx = 0
-            while batch_idx < BATCH_SIZE and idx < len(ex_indices):
+            while batch_idx < BATCH_SIZE and idx + batch_idx < len(ex_indices):
                 shuffled_idx = ex_indices[idx + batch_idx]
-                batched_inputs.extend(train_exs[shuffled_idx].words)
+                batched_inputs.append(train_exs[shuffled_idx].words)
                 batched_labels.append(train_exs[shuffled_idx].label)
                 idx += 1
+                batch_idx += 1
         
             batched_labels = torch.tensor(batched_labels)
 
