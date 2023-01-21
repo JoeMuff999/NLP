@@ -219,14 +219,61 @@ def train_linear_model(args, train_exs: List[SentimentExample], dev_exs: List[Se
     model = train_logistic_regression(train_exs, feat_extractor)
     return model
 
+import torch.nn as nn
+
+class FFNN(nn.Module):
+
+    def __init__(self, inp, hid, out, word_embeddings : WordEmbeddings):
+        """
+        Constructs the computation graph by instantiating the various layers and initializing weights.
+
+        :param inp: size of input (integer)
+        :param hid: size of hidden layer(integer)
+        :param out: size of output (integer), which should be the number of classes
+        """
+        super(FFNN, self).__init__()
+        self.V = nn.Linear(inp, hid)
+        # self.g = nn.Tanh()
+        self.g = nn.ReLU6()
+        self.W = nn.Linear(hid, out)
+        self.log_softmax = nn.LogSoftmax(dim=0)
+        # Initialize weights according to a formula due to Xavier Glorot.
+        nn.init.xavier_uniform_(self.V.weight)
+        nn.init.xavier_uniform_(self.W.weight)
+        # self.dropout = nn.Dropout()
+        self.word_embeddings = word_embeddings
+
+    def forward(self, _input : List[str]):
+        """
+
+        Runs the neural network on the given data and returns log probabilities of the various classes.
+
+        :param x: a [inp]-sized tensor of input data
+        :return: an [out]-sized tensor of log probabilities. (In general your network can be set up to return either log
+        probabilities or a tuple of (loss, log probability) if you want to pass in y to this function as well
+        """
+
+        encoded_input = np.zeros(self.word_embeddings.get_embedding_length())
+        for word in _input:
+            encoded_input = np.add(encoded_input, self.word_embeddings.get_embedding(word))
+            
+        encoded_input = encoded_input / len(_input)
+        encoded_input = torch.tensor(encoded_input).float()
+        return self.log_softmax(self.W(self.g(self.V(encoded_input))))
 
 class NeuralSentimentClassifier(SentimentClassifier):
     """
     Implement your NeuralSentimentClassifier here. This should wrap an instance of the network with learned weights
     along with everything needed to run it on new data (word embeddings, etc.)
     """
-    def __init__(self, network, word_embeddings):
-        raise NotImplementedError
+    def __init__(self, network : FFNN, word_embeddings):
+        self.network = network
+        self.word_embeddings = word_embeddings
+        print("Created NeuralSentimentClassifier")
+
+    def predict(self, ex_words: List[str]) -> int:
+        self.network.eval() # dont change weights anymore
+        return torch.argmax(self.network.forward(ex_words)).item()
 
 
 def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_exs: List[SentimentExample], word_embeddings: WordEmbeddings) -> NeuralSentimentClassifier:
@@ -238,4 +285,34 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
     :param word_embeddings: set of loaded word embeddings
     :return: A trained NeuralSentimentClassifier model
     """
-    raise NotImplementedError
+
+    # RUN TRAINING AND TEST
+    num_output_classes = 2
+    num_epochs = 15
+    ffnn = FFNN(word_embeddings.get_embedding_length(), 10, num_output_classes, word_embeddings)
+    ffnn.train()
+    initial_learning_rate = 0.001
+    optimizer = optim.Adam(ffnn.parameters(), lr=initial_learning_rate)
+    for epoch in range(0, num_epochs):
+        ex_indices = [i for i in range(0, len(train_exs))]
+        random.shuffle(ex_indices)
+        total_loss = 0.0
+        for idx in ex_indices:
+            x = train_exs[idx].words
+            y = train_exs[idx].label
+            y_onehot = torch.zeros(num_output_classes)
+            # scatter will write the value of 1 into the position of y_onehot given by y
+            y_onehot.scatter_(0, torch.from_numpy(np.asarray(y,dtype=np.int64)), 1)
+            # Zero out the gradients from the FFNN object. *THIS IS VERY IMPORTANT TO DO BEFORE CALLING BACKWARD()*
+            ffnn.zero_grad()
+            log_probs = ffnn.forward(x)
+            # print(log_probs)
+            # Can also use built-in NLLLoss as a shortcut here but we're being explicit here
+            loss = torch.neg(log_probs).dot(y_onehot)
+            total_loss += loss
+            # Computes the gradient and takes the optimizer step
+            loss.backward()
+            optimizer.step()
+        print("Total loss on epoch %i: %f" % (epoch, total_loss))
+    
+    return NeuralSentimentClassifier(ffnn, word_embeddings)
