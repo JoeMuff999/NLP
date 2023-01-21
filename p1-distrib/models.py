@@ -288,30 +288,44 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
 
     # RUN TRAINING AND TEST
     num_output_classes = 2
-    num_epochs = 15
+    num_epochs = 1000
+    BATCH_SIZE = 20
     ffnn = FFNN(word_embeddings.get_embedding_length(), 10, num_output_classes, word_embeddings)
     ffnn.train()
-    initial_learning_rate = 0.001
+    initial_learning_rate = 0.0001
     optimizer = optim.Adam(ffnn.parameters(), lr=initial_learning_rate)
     for epoch in range(0, num_epochs):
         ex_indices = [i for i in range(0, len(train_exs))]
         random.shuffle(ex_indices)
         total_loss = 0.0
-        for idx in ex_indices:
-            x = train_exs[idx].words
-            y = train_exs[idx].label
-            y_onehot = torch.zeros(num_output_classes)
+        idx = 0
+        while idx < len(ex_indices):
+            batched_inputs = []
+            batched_labels = []
+            batch_idx = 0
+            while batch_idx < BATCH_SIZE and idx < len(ex_indices):
+                shuffled_idx = ex_indices[idx + batch_idx]
+                batched_inputs.extend(train_exs[shuffled_idx].words)
+                batched_labels.append(train_exs[shuffled_idx].label)
+                idx += 1
+        
+            batched_labels = torch.tensor(batched_labels)
+
             # scatter will write the value of 1 into the position of y_onehot given by y
-            y_onehot.scatter_(0, torch.from_numpy(np.asarray(y,dtype=np.int64)), 1)
+
+            y_onehot = [torch.zeros(num_output_classes) for _ in range(len(batched_labels))]
+            y_onehot = [i.scatter(0, torch.from_numpy(np.asarray(y,dtype=np.int64)), 1).tolist() for i,y in zip(y_onehot, batched_labels)]
             # Zero out the gradients from the FFNN object. *THIS IS VERY IMPORTANT TO DO BEFORE CALLING BACKWARD()*
             ffnn.zero_grad()
-            log_probs = ffnn.forward(x)
+            
+            log_probs = ffnn.forward(batched_inputs)
             # print(log_probs)
             # Can also use built-in NLLLoss as a shortcut here but we're being explicit here
-            loss = torch.neg(log_probs).dot(y_onehot)
-            total_loss += loss
+            
+            loss = torch.neg(log_probs).mul(torch.tensor(y_onehot))
+            total_loss += loss.sum()
             # Computes the gradient and takes the optimizer step
-            loss.backward()
+            loss.sum().backward()
             optimizer.step()
         print("Total loss on epoch %i: %f" % (epoch, total_loss))
     
