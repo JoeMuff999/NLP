@@ -259,6 +259,9 @@ class FFNN(nn.Module):
                 batched_encoded_input[idx] = np.add(batched_encoded_input[idx], self.word_embeddings.get_embedding(word))
             
             batched_encoded_input[idx] = batched_encoded_input[idx] / len(_input)
+        
+        if len(batched_encoded_input) == 1:
+            batched_encoded_input = batched_encoded_input[0]
         return self.log_softmax(self.W(self.g(self.V(batched_encoded_input))))
 
 class NeuralSentimentClassifier(SentimentClassifier):
@@ -272,8 +275,8 @@ class NeuralSentimentClassifier(SentimentClassifier):
         print("Created NeuralSentimentClassifier")
 
     def predict(self, ex_words: List[str]) -> int:
-        self.network.eval() # dont change weights anymore
-        return torch.argmax(self.network.forward(ex_words)).item()
+        self.network.eval() # dont change weights anymore\
+        return torch.argmax(self.network.forward([ex_words])).item()
 
 
 def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_exs: List[SentimentExample], word_embeddings: WordEmbeddings) -> NeuralSentimentClassifier:
@@ -289,7 +292,7 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
     # RUN TRAINING AND TEST
     num_output_classes = 2
     num_epochs = 7
-    BATCH_SIZE = 2
+    BATCH_SIZE = 1
     ffnn = FFNN(word_embeddings.get_embedding_length(), 10, num_output_classes, word_embeddings)
     ffnn.train()
     initial_learning_rate = 0.001
