@@ -288,7 +288,7 @@ def train_deep_averaging_network(args, train_exs: List[SentimentExample], dev_ex
 
     # RUN TRAINING AND TEST
     num_output_classes = 2
-    num_epochs = 10
+    num_epochs = 7
     BATCH_SIZE = 2
     ffnn = FFNN(word_embeddings.get_embedding_length(), 10, num_output_classes, word_embeddings)
     ffnn.train()
