@@ -29,7 +29,7 @@ class LetterCountingExample(object):
 # a single layer of the Transformer; this Module will take the raw words as input and do all of the steps necessary
 # to return distributions over the labels (0, 1, or 2).
 class Transformer(nn.Module):
-    def __init__(self, vocab_size, num_positions, d_model, d_internal, num_classes, num_layers):
+    def __init__(self, vocab_size, num_positions, d_model, d_internal, num_classes, num_layers, n_heads):
         """
         :param vocab_size: vocabulary size of the embedding layer
         :param num_positions: max sequence length that will be fed to the model; should be 20
@@ -42,8 +42,8 @@ class Transformer(nn.Module):
         self.em = nn.Embedding(vocab_size, d_model) # d_model = 512...
         # self.num_positions = num_positions
         self.d_model = d_model
-        self.transformers = nn.ModuleList([TransformerLayer(d_model, d_internal) for _ in range(num_layers)])
-        self.transformer = TransformerLayer(d_model, d_internal)
+        self.transformers = nn.ModuleList([TransformerLayer(d_model, d_internal, n_heads=n_heads) for _ in range(num_layers)])
+        # self.transformer = TransformerLayer(d_model, d_internal, n_heads=1)
         self.output = nn.Linear(d_model, num_classes)
         self.log_softmax = nn.LogSoftmax(dim=1)
         self.p_encoder = PositionalEncoding(d_model, num_positions, batched=False)
@@ -92,7 +92,7 @@ class Transformer(nn.Module):
 # feedforward unit
 # of the same length, applying self-attention, the feedforward layer, etc.
 class TransformerLayer(nn.Module):
-    def __init__(self, d_model, d_internal):
+    def __init__(self, d_model, d_internal, n_heads):
         """
         :param d_model: The dimension of the inputs and outputs of the layer (note that the inputs and outputs
         have to be the same size for the residual connection to work)
@@ -100,18 +100,20 @@ class TransformerLayer(nn.Module):
         should both be of this length.
         """
         super().__init__()
+
+
+
         self.d_model = d_model
         self.d_internal = d_internal
         self.d_ff = 100
         self.softmax = nn.Softmax(dim=1)
 
-        self.Q = nn.Linear(d_model, d_internal) # Q : seq len x d matrix (d = embedding dimension - [0,1,2])
-        self.K = nn.Linear(d_model, d_internal)
-        self.V = nn.Linear(d_model, d_internal)
+        self.Q = nn.ModuleList([nn.Linear(d_model, d_internal) for _ in range(n_heads)])
+        self.K = nn.ModuleList([nn.Linear(d_model, d_internal) for _ in range(n_heads)])
+        self.V = nn.ModuleList([nn.Linear(d_model, d_internal) for _ in range(n_heads)])
 
-
-
-        self.W_0 = nn.Linear(d_internal, d_model) #TODO: fix this... the issue is with taking output of attention and performing residual (how to we get dimension back to d_model?)
+        # self. = nn.ModuleList([nn.Linear(d_internal, d_model)])
+        self.W_0 = nn.Linear(d_internal*n_heads, d_model)
 
         self.g = nn.ReLU()
         self.lin = nn.Linear(d_model, self.d_ff)
@@ -119,21 +121,24 @@ class TransformerLayer(nn.Module):
         self.W = nn.Linear(self.d_ff, d_model)
         self.log_softmax = nn.LogSoftmax(dim=1)
         # Initialize weights according to a formula due to Xavier Glorot.
-        nn.init.xavier_uniform_(self.V.weight)
+        # for q,k,v in zip(self.Q,self.K,self.V):
+        nn.init.xavier_uniform_(self.lin.weight)
         nn.init.xavier_uniform_(self.W.weight)
 
     def forward(self, input_vecs):
 
-        #1. self-attention
-        S = torch.matmul(self.Q(input_vecs), torch.t(self.K(input_vecs))) # 20 x 20
-        S = self.softmax(S/np.sqrt(self.d_internal)) #20x20
-        V = self.V(input_vecs) # 20xd_model ->  20 x d_internal
-        # print(self.softmax(S/np.sqrt(self.d_internal)).size())
-        V = self.W_0(V) # 20 x d_model
-        Z = torch.matmul(S, V) #20x20 x 20xd_model = 20 x d_model
-        # Attention = self.W_0(Z) # 20 x d_model
+        Z_cat = torch.Tensor()
+        #1 multi-head self attention
+        for trio in zip(self.Q, self.K, self.V):
+            q,k,v = trio
+            S = torch.matmul(q(input_vecs), torch.t(k(input_vecs)))
+            S = self.softmax(S/np.sqrt(self.d_internal)) #20x20
+            Z = torch.matmul(S, v(input_vecs)) #20x20 x 20xd_internal = 20 x d_internal
+            Z_cat = torch.cat((Z_cat, Z), dim=1)
+
+        Z_cat = self.W_0(Z_cat) # 20 x d_internal*n_heads -> 20 x d_model
         #2. residual connection
-        Attention = torch.add(input_vecs, Z)
+        Attention = torch.add(input_vecs, Z_cat)
         #3. linear layer, nonlinear, linear layer FFN
         FeedForward = self.W(self.g(self.lin(Attention)))
         # 4. final residual connection
@@ -176,7 +181,7 @@ class PositionalEncoding(nn.Module):
 def train_classifier(args, train, dev):
     # The following code DOES NOT WORK but can be a starting point for your implementation
     # Some suggested snippets to use:
-    model = Transformer(27, 20, 512, 64,3,4)
+    model = Transformer(27, 20, 512, 64,3,num_layers=1, n_heads=8)
     model.zero_grad()
     model.train()
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
