@@ -10,16 +10,27 @@ QA_MAX_ANSWER_LENGTH = 30
 
 
 # This function preprocesses an NLI dataset, tokenizing premises and hypotheses.
-def prepare_dataset_nli(examples, tokenizer, max_seq_length=None):
+def prepare_dataset_nli(examples, tokenizer, max_seq_length=None, include_premise=True):
     max_seq_length = tokenizer.model_max_length if max_seq_length is None else max_seq_length
+    tokenized_examples = None
 
-    tokenized_examples = tokenizer(
-        examples['premise'],
-        examples['hypothesis'],
-        truncation=True,
-        max_length=max_seq_length,
-        padding='max_length'
-    )
+    if include_premise:
+        tokenized_examples = tokenizer(
+            examples['premise'],
+            examples['hypothesis'],
+            truncation=True,
+            max_length=max_seq_length,
+            padding='max_length'
+        )
+        # print("with premise")
+    else:
+        tokenized_examples = tokenizer(
+            examples['hypothesis'],
+            truncation=True,
+            max_length=max_seq_length,
+            padding='max_length'
+        )        
+        # print("no premise")
 
     tokenized_examples['label'] = examples['label']
     return tokenized_examples
@@ -28,6 +39,15 @@ def prepare_dataset_nli(examples, tokenizer, max_seq_length=None):
 # This function computes sentence-classification accuracy.
 # Functions with signatures like this one work as the "compute_metrics" argument of transformers.Trainer.
 def compute_accuracy(eval_preds: EvalPrediction):
+    # print(eval_preds.predictions)
+    # print(eval_preds.predictions[0])
+    # print(eval_preds.label_ids[0])
+    # easy_idxs = []
+    # for idx in range(len(eval_preds.predictions)):
+    #     if np.argmax(eval_preds.predictions[idx]) == eval_preds.label_ids[idx]:
+    #         easy_idxs.append(idx)
+    # np.savetxt('easy_examples.txt', np.array(easy_idxs), fmt='%d')
+
     return {
         'accuracy': (np.argmax(
             eval_preds.predictions,

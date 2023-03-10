@@ -5,6 +5,7 @@ from helpers import prepare_dataset_nli, prepare_train_dataset_qa, \
     prepare_validation_dataset_qa, QuestionAnsweringTrainer, compute_accuracy
 import os
 import json
+import numpy as np
 
 NUM_PREPROCESSING_WORKERS = 2
 
@@ -46,6 +47,10 @@ def main():
                       help='Limit the number of examples to train on.')
     argp.add_argument('--max_eval_samples', type=int, default=None,
                       help='Limit the number of examples to evaluate on.')
+    
+    argp.add_argument('--include_premise', action='store_true')
+    argp.add_argument('--no_premise', dest='include_premise',action='store_false')
+    argp.set_defaults(include_premise=True)
 
     training_args, args = argp.parse_args_into_dataclasses()
 
@@ -78,13 +83,15 @@ def main():
     model = model_class.from_pretrained(args.model, **task_kwargs)
     tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=True)
 
+
+
     # Select the dataset preprocessing function (these functions are defined in helpers.py)
     if args.task == 'qa':
         prepare_train_dataset = lambda exs: prepare_train_dataset_qa(exs, tokenizer)
         prepare_eval_dataset = lambda exs: prepare_validation_dataset_qa(exs, tokenizer)
     elif args.task == 'nli':
         prepare_train_dataset = prepare_eval_dataset = \
-            lambda exs: prepare_dataset_nli(exs, tokenizer, args.max_length)
+            lambda exs: prepare_dataset_nli(exs, tokenizer, args.max_length, include_premise=args.include_premise)
         # prepare_eval_dataset = prepare_dataset_nli
     else:
         raise ValueError('Unrecognized task name: {}'.format(args.task))
@@ -94,6 +101,8 @@ def main():
         # remove SNLI examples with no label
         dataset = dataset.filter(lambda ex: ex['label'] != -1)
     
+
+
     train_dataset = None
     eval_dataset = None
     train_dataset_featurized = None
@@ -112,12 +121,14 @@ def main():
         eval_dataset = dataset[eval_split]
         if args.max_eval_samples:
             eval_dataset = eval_dataset.select(range(args.max_eval_samples))
+        print(type(eval_dataset))
         eval_dataset_featurized = eval_dataset.map(
             prepare_eval_dataset,
             batched=True,
             num_proc=NUM_PREPROCESSING_WORKERS,
             remove_columns=eval_dataset.column_names
         )
+
 
     # Select the training configuration
     trainer_class = Trainer
@@ -144,6 +155,23 @@ def main():
         nonlocal eval_predictions
         eval_predictions = eval_preds
         return compute_metrics(eval_preds)
+    
+    # # modify eval set
+    # easy_idxs = np.loadtxt('easy_examples.txt',dtype=int)
+    # easy_idxs_set = set(easy_idxs)
+    # hard_idxs = []
+    # for idx in range(len(eval_dataset_featurized)):
+    #     if idx not in easy_idxs_set:
+    #         hard_idxs.append(idx)
+    
+    # def word_stats(dataset, word_to_count):
+    #     count = 0
+    #     for idx in range(len(eval_dataset_featurized[''])):
+            
+
+
+    # eval_dataset_featurized = eval_dataset_featurized.select(hard_idxs)
+    
 
     # Initialize the Trainer object with the specified arguments and the model and dataset we loaded above
     trainer = trainer_class(
@@ -156,6 +184,7 @@ def main():
     )
     # Train and/or evaluate
     if training_args.do_train:
+        # trainer.train("trained_model_no_premise_retry/checkpoint-47000")
         trainer.train()
         trainer.save_model()
         # If you want to customize the way the loss is computed, you should subclass Trainer and override the "compute_loss"
@@ -167,7 +196,6 @@ def main():
 
     if training_args.do_eval:
         results = trainer.evaluate(**eval_kwargs)
-
         # To add custom metrics, you should replace the "compute_metrics" function (see comments above).
         #
         # If you want to change how predictions are computed, you should subclass Trainer and override the "prediction_step"
